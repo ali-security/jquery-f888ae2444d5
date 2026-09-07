@@ -234,24 +234,32 @@ module( "ajax", {
 		}
 	});
 
-	ajaxTest( "jQuery.ajax() - contentType", 2, [
-		{
-			url: url("data/headers.php?keys=content-type"),
-			contentType: "test",
-			success: function( data ) {
-				strictEqual( data, "content-type: test\n", "Test content-type is sent when options.contentType is set" );
+	// PhantomJS 1.9 EXCLUSION (1 of these 2 assertions): Qt's HTTP stack strips
+	// a Content-Type request header from any request that carries no body, so
+	// the contentType:"test" case below is a GET with no data and the header
+	// never reaches the server. It is dropped below JavaScript -- jQuery does
+	// call setRequestHeader -- so nothing in the page can restore it. The
+	// contentType:false case still runs.
+	ajaxTest( "jQuery.ajax() - contentType", phantom19 ? 1 : 2,
+		( phantom19 ? [] : [
+			{
+				url: url("data/headers.php?keys=content-type"),
+				contentType: "test",
+				success: function( data ) {
+					strictEqual( data, "content-type: test\n", "Test content-type is sent when options.contentType is set" );
+				}
 			}
-		},
-		{
-			url: url("data/headers.php?keys=content-type"),
-			contentType: false,
-			success: function( data ) {
-				// Some server/interpreter combinations always supply a Content-Type to scripts
-				data = data || "content-type: \n";
-				strictEqual( data, "content-type: \n", "Test content-type is not set when options.contentType===false" );
+		] ).concat([
+			{
+				url: url("data/headers.php?keys=content-type"),
+				contentType: false,
+				success: function( data ) {
+					// Some server/interpreter combinations always supply a Content-Type to scripts
+					data = data || "content-type: \n";
+					strictEqual( data, "content-type: \n", "Test content-type is not set when options.contentType===false" );
+				}
 			}
-		}
-	]);
+		]) );
 
 	ajaxTest( "jQuery.ajax() - protocol-less urls", 1, {
 		url: "//somedomain.com",

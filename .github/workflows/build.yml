@@ -1,0 +1,152 @@
+name: Build and pack jquery 1.11.1
+
+# Build-and-pack only. The project's test legs live in .travis.yml and run on
+# Travis; nothing here runs tests, so there is no test-filter input.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve the node 0.10 image
+        run: |
+          # jquery 1.11.1's devDependencies are from 2014 and only run on node 0.10.
+          # setup-node cannot install 0.10 on a modern runner, so the build runs in
+          # the era-matched official image instead.
+          for tag in node:0.10 node:0.10.48 node:0.10-wheezy; do
+            if docker pull "$tag"; then
+              echo "NODE_IMAGE=$tag" >> "$GITHUB_ENV"
+              exit 0
+            fi
+          done
+          echo "no node 0.10 image could be pulled" >&2
+          exit 1
+
+      - name: Build with grunt in node 0.10
+        run: |
+          docker run --rm -v "$PWD":/ws -w /ws "$NODE_IMAGE" bash -c '
+            set -ex
+
+            # The 2014 devDependencies cannot resolve against today registry, so
+            # pin resolution to the release-date snapshot.
+            npm config set registry https://:2014-05-01T18%3A05%3A32.863Z@time-machines-npm.sealsecurity.io/
+            npm config set strict-ssl false
+
+            npm install
+            ./node_modules/.bin/grunt
+          '
+          # The container writes as root; hand the tree back so host steps can read it.
+          docker run --rm -v "$PWD":/ws -w /ws "$NODE_IMAGE" \
+            chown -R "$(id -u):$(id -g)" /ws
+
+      - name: Pin the build date and synthesize dist/cdn
+        run: |
+          cat > /tmp/postbuild.js <<'POSTBUILD'
+          // Two release-time steps the repo's grunt build does not do itself.
+          //
+          // 1. build/tasks/build.js substitutes @DATE with the wall-clock build
+          //    time. The published dist/jquery.js carries the 2014 release build
+          //    time, so pin it. Only the header comment changes: uglify runs with
+          //    preserveComments:false, so dist/jquery.min.js and the line-based
+          //    mappings in dist/jquery.min.map are unaffected by this line's text.
+          //
+          // 2. dist/cdn/ ships in the published tarball but is produced by the
+          //    jquery-release release script, not by the repo's grunt build. Each
+          //    of its nine members was verified byte-for-byte against the
+          //    published 1.11.1 tarball to be one of these three derivations.
+          var fs = require("fs");
+          var path = require("path");
+
+          var dist = path.join(process.cwd(), "dist");
+          var cdn = path.join(dist, "cdn");
+
+          var js = fs.readFileSync(path.join(dist, "jquery.js"), "utf8");
+          if (!/^ \* Date: .*$/m.test(js)) {
+            throw new Error("no Date header found in dist/jquery.js");
+          }
+          js = js.replace(/^ \* Date: .*$/m, " * Date: 2014-05-01T17:42Z");
+          fs.writeFileSync(path.join(dist, "jquery.js"), js, "utf8");
+
+          var minJs = fs.readFileSync(path.join(dist, "jquery.min.js"), "utf8");
+          var minMap = fs.readFileSync(path.join(dist, "jquery.min.map"), "utf8");
+
+          // The cdn min.js copies carry no sourceMappingURL comment.
+          var minStripped = minJs.replace(
+            /\n\/\/# sourceMappingURL=jquery\.min\.map\s*$/,
+            "\n"
+          );
+          if (minStripped === minJs) {
+            throw new Error("no sourceMappingURL comment in dist/jquery.min.js");
+          }
+
+          function renameMap(name) {
+            return minMap
+              .replace('"file":"jquery.min.js"', '"file":"' + name + '.min.js"')
+              .replace('"sources":["jquery.js"]', '"sources":["' + name + '.js"]');
+          }
+
+          if (!fs.existsSync(cdn)) {
+            fs.mkdirSync(cdn);
+          }
+          var members = {
+            "jquery.js": js,
+            "jquery-1.11.1.js": js,
+            "jquery-latest.js": js,
+            "jquery.min.js": minStripped,
+            "jquery-1.11.1.min.js": minStripped,
+            "jquery-latest.min.js": minStripped,
+            "jquery.min.map": minMap,
+            "jquery-1.11.1.min.map": renameMap("jquery-1.11.1"),
+            "jquery-latest.min.map": renameMap("jquery-latest")
+          };
+          Object.keys(members).forEach(function (name) {
+            fs.writeFileSync(path.join(cdn, name), members[name], "utf8");
+            console.log("wrote dist/cdn/" + name);
+          });
+          POSTBUILD
+          node /tmp/postbuild.js
+          sed -n '12p' dist/jquery.js
+          ls -l dist dist/cdn
+
+      - name: Pack with npm 1.2.25 in node 0.10
+        run: |
+          # .npmignore does not exclude .github/, and it is itself a packed member
+          # whose bytes must match the published one — so drop this workflow from
+          # the workspace instead of editing .npmignore. The run is already loaded.
+          rm -rf .github
+
+          docker run --rm -v "$PWD":/ws -w /ws "$NODE_IMAGE" bash -c '
+            set -ex
+
+            npm config set registry https://:2014-05-01T18%3A05%3A32.863Z@time-machines-npm.sealsecurity.io/
+            npm config set strict-ssl false
+
+            # The published tarball was packed with npm 1.2.25; npm pack member
+            # selection changed across majors, so match it. Fall back to the
+            # bundled npm rather than failing the job outright.
+            if ! npm install -g npm@1.2.25; then
+              echo "npm@1.2.25 unavailable; packing with the bundled npm"
+            fi
+            npm --version
+            npm pack
+          '
+          docker run --rm -v "$PWD":/ws -w /ws "$NODE_IMAGE" \
+            chown -R "$(id -u):$(id -g)" /ws
+
+      - name: Name the tarball as published
+        run: |
+          if [ ! -f jquery-1.11.1.tgz ]; then
+            mv jquery-*.tgz jquery-1.11.1.tgz
+          fi
+          tar tzf jquery-1.11.1.tgz | sort
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jquery-1.11.1.tgz
+          path: jquery-1.11.1.tgz
+          if-no-files-found: error

@@ -13,10 +13,15 @@
 <body>
 	<div>
 		<script src="../../jquery.js"></script>
+		<script src="../wait-for-layout.js"></script>
 	</div>
 	<script>
 		jQuery(function() {
-			window.parent.iframeCallback( jQuery.support.shrinkWrapBlocks() );
+			// shrinkWrapBlocks() decides from offsetWidth, which is 0 until
+			// this iframe's first layout; see ../wait-for-layout.js.
+			whenLaidOut(function() {
+				window.parent.iframeCallback( jQuery.support.shrinkWrapBlocks() );
+			});
 		});
 	</script>
 </body>

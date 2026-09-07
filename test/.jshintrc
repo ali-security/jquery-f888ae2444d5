@@ -57,6 +57,7 @@
 		"fireNative": true,
 		"Globals": true,
 		"hasPHP": true,
+		"phantom19": true,
 		"isLocal": true,
 		"supportjQuery": true,
 		"originaljQuery": true,

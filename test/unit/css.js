@@ -858,13 +858,21 @@ test("css('width') and css('height') should respect box-sizing, see #11004", fun
 	equal( el_dis.css("height"), el_dis.css("height", el_dis.css("height")).css("height"), "css('height') is not respecting box-sizing for disconnected element, see #11004");
 });
 
-testIframeWithCallback( "css('width') should work correctly before document ready (#14084)",
-	"css/cssWidthBeforeDocReady.html",
-	function( cssWidthBeforeDocReady ) {
-		expect( 1 );
-		strictEqual( cssWidthBeforeDocReady, "100px", "elem.css('width') works correctly before document ready" );
-	}
-);
+// PhantomJS 1.9 EXCLUSION (1 assertion): this test measures css("width") on a
+// border-box element deliberately BEFORE document ready, and Qt WebKit has not
+// laid the iframe out by then -- offsetWidth is 0, so jQuery answers with the
+// padding alone ("20px" instead of "100px"). Unlike the other fixtures, the
+// point of the test is the pre-layout timing, so it cannot wait for layout
+// (see test/data/wait-for-layout.js) without testing something else.
+if ( !phantom19 ) {
+	testIframeWithCallback( "css('width') should work correctly before document ready (#14084)",
+		"css/cssWidthBeforeDocReady.html",
+		function( cssWidthBeforeDocReady ) {
+			expect( 1 );
+			strictEqual( cssWidthBeforeDocReady, "100px", "elem.css('width') works correctly before document ready" );
+		}
+	);
+}
 
 test("certain css values of 'normal' should be convertable to a number, see #8627", function() {
 	expect ( 3 );

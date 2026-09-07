@@ -19,11 +19,16 @@
 	<div>
 		<script src="../../jquery.js"></script>
 		<script src="getComputedSupport.js"></script>
+		<script src="../wait-for-layout.js"></script>
 	</div>
 	<script>
 		jQuery(function() {
-			window.parent.iframeCallback( jQuery( "body" ).css( "backgroundColor" ),
-					getComputedSupport( jQuery.support ) );
+			// jQuery's lazy support probes measure offsetWidth, which is 0
+			// until this iframe's first layout; see ../wait-for-layout.js.
+			whenLaidOut(function() {
+				window.parent.iframeCallback( jQuery( "body" ).css( "backgroundColor" ),
+						getComputedSupport( jQuery.support ) );
+			});
 		});
 	</script>
 </body>

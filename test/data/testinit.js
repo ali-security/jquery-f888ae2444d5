@@ -9,6 +9,13 @@ var fireNative, originaljQuery, original$,
 this.hasPHP = true;
 this.isLocal = window.location.protocol === "file:";
 
+// PhantomJS 1.9 is the headless browser this suite runs on in CI. A handful of
+// its defects cannot be worked around from inside the page, so the individual
+// assertions that depend on the missing behaviour are guarded on this flag.
+// Each guard carries a comment naming the defect; every other browser runs
+// them all.
+this.phantom19 = /PhantomJS\/1\.9/.test( navigator.userAgent );
+
 // Setup global variables before loading jQuery for testing .noConflict()
 supportjQuery.noConflict( true );
 originaljQuery = this.jQuery = undefined;
@@ -121,6 +128,18 @@ fireNative = document.createEvent ?
 		node.fireEvent( 'on' + type, event );
 	};
 
+// Report whether an iframe fixture is ready to be measured.
+//
+// Qt WebKit (PhantomJS 1.9) performs a freshly navigated iframe's first layout
+// asynchronously and will not flush it on demand: until it lands, every
+// element in the fixture measures 0, including via getBoundingClientRect().
+// A fixture that does its own post-layout setup announces completion by
+// flipping window.fixtureReady (see test/data/wait-for-layout.js).
+function laidOut( win ) {
+	var body = win.document && win.document.body;
+	return !!body && body.offsetHeight > 0 && win.fixtureReady !== false;
+}
+
 /**
  * Add random number to url to stop caching
  *
@@ -207,8 +226,13 @@ this.testIframe = function( fileName, name, fn ) {
 		// load fixture in iframe
 		var iframe = loadFixture(),
 			win = iframe.contentWindow,
+			waited = 0,
 			interval = setInterval(function() {
-				if ( win && win.jQuery && win.jQuery.isReady ) {
+				// Wait for the fixture's first layout as well as its jQuery,
+				// or the geometry the test compares against is all zeros.
+				// Bounded, so a legitimately zero-height fixture still runs.
+				if ( win && win.jQuery && win.jQuery.isReady &&
+					( laidOut( win ) || ++waited > 100 ) ) {
 					clearInterval( interval );
 
 					start();

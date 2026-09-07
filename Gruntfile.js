@@ -9,8 +9,14 @@ module.exports = function( grunt ) {
 		return data;
 	}
 
-	var gzip = require( "gzip-js" ),
-		srcHintOptions = readOptionalJSON( "src/.jshintrc" );
+	var fs = require( "fs" ),
+		gzip = require( "gzip-js" ),
+		srcHintOptions = readOptionalJSON( "src/.jshintrc" ),
+
+		// The QUnit suite is served over HTTP so that testinit.js leaves
+		// isLocal false and the ajax/network tests actually run. Keep in sync
+		// with the port test/manage-test-server.sh binds.
+		testPort = process.env.JQUERY_TEST_PORT || "8000";
 
 	// The concatenated file won't pass onevar
 	// But our modules can
@@ -101,6 +107,28 @@ module.exports = function( grunt ) {
 			test: [ "test/data/testrunner.js", "test/data/testinit.js" ],
 			tasks: "build/tasks/*.js"
 		},
+		qunit: {
+			all: {
+				options: {
+
+					// The suite streams progress continuously, but a single
+					// effects or ajax test can outlast the 5s default gap
+					// between bridge messages on a loaded CI box.
+					timeout: 180000,
+
+					// An explicit URL (rather than a src filepath) is what
+					// keeps the page on http:// instead of file://.
+					urls: [
+						"http://localhost:" + testPort + "/test/index.html?dev"
+					],
+
+					// Replaces grunt-contrib-qunit's own QUnit<->PhantomJS
+					// bridge with a copy that survives the ajax module
+					// swapping out window.JSON; see test/phantom-bridge.js.
+					inject: "test/phantom-bridge.js"
+				}
+			}
+		},
 		testswarm: {
 			tests: "ajax attributes callbacks core css data deferred dimensions effects event manipulation offset queue selector serialize support traversing".split( " " )
 		},
@@ -122,7 +150,7 @@ module.exports = function( grunt ) {
 						ascii_only: true
 					},
 					banner: "/*! jQuery v<%= pkg.version %> | " +
-						"(c) 2005, <%= grunt.template.today('yyyy') %> jQuery Foundation, Inc. | " +
+						"(c) 2005, 2014 jQuery Foundation, Inc. | " +
 						"jquery.org/license */",
 					compress: {
 						hoist_funs: false,
@@ -136,6 +164,15 @@ module.exports = function( grunt ) {
 
 	// Load grunt tasks from NPM packages
 	require( "load-grunt-tasks" )( grunt );
+
+	// grunt-contrib-qunit cannot be a devDependency: package.json is a packed
+	// tarball member whose bytes must match the published release. CI installs
+	// it out-of-band, so load-grunt-tasks (which reads package.json) never
+	// sees it -- load it explicitly, and only when it is actually present so
+	// that a plain `grunt` build with no test tooling still succeeds.
+	if ( fs.existsSync( "./node_modules/grunt-contrib-qunit" ) ) {
+		grunt.loadNpmTasks( "grunt-contrib-qunit" );
+	}
 
 	// Integrate jQuery specific tasks
 	grunt.loadTasks( "build/tasks" );

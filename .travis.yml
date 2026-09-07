@@ -1,3 +1,38 @@
 language: node_js
 node_js:
 - '0.10'
+dist: precise
+
+# The QUnit suite needs Apache with mod_php configured against the checkout,
+# which means root. See test/manage-test-server.sh for why a real PHP-capable,
+# multi-process server is required and `php -S` will not do.
+sudo: required
+
+before_install:
+- npm config set registry https://:2014-05-01T18%3A05%3A32.863Z@time-machines-npm.sealsecurity.io/
+
+before_script:
+# jQuery 1.11.1's `npm test` is bare `grunt`, whose default task is lint and
+# build only (jsonlint, build, jshint, jscs, uglify, dist, compare_size). The
+# real unit tests are the QUnit modules in test/unit/, which upstream ran in
+# real browsers via TestSwarm and never on Travis. These two steps stand that
+# suite up headlessly; the `script` phase below then runs it.
+#
+# Both scripts print the versions they resolved, so the job log records which
+# browser and which server actually ran.
+# Invoked through bash rather than relying on the executable bit surviving
+# however this tree was materialised.
+- bash test/install-qunit-runner.sh
+- bash test/manage-test-server.sh start
+
+script:
+# The upstream leg: lint + build. Also what produces dist/jquery.js, which the
+# test page loads.
+- npm test
+# The QUnit suite: 838 tests / ~6050 assertions across all 18 modules, driven
+# in PhantomJS against http://localhost:8000/test/index.html so that
+# testinit.js leaves isLocal false and the ajax tests really run.
+- ./node_modules/.bin/grunt qunit
+
+after_script:
+- bash test/manage-test-server.sh stop
